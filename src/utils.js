@@ -281,4 +281,3 @@ function exportCSV(items, filename = 'OGA_ItemCheck') {
 function exportDiscrepancyCSV(items) {
   exportCSV(items.filter(i => i.status !== 'MATCH'), 'OGA_Discrepancy');
 }
-
