@@ -270,6 +270,27 @@ const INITIAL_ITEMS = [
     operator: "",
     notes: ""
   }
+
+  ,
+  {
+    sku: "AGLZ/UZ268423",
+    barcode: "",
+    name: "SUS 304 BA 0.80 X 1219 X C",
+    category: "Materials",
+    serial: "",
+    primaryLoc: "Rack-A13",
+    actualLoc: "Rack-A13",
+    zone: "Rack-A",
+    systemOnHand: 476,
+    reserved: 0,
+    available: 0,
+    physicalCount: 0,
+    variance: -476,
+    status: "DISCREPANCY",
+    lastAudit: "",
+    operator: "",
+    notes: ""
+  }
 ];
 
 const INITIAL_TASKS = [
@@ -336,4 +357,3 @@ const DEFAULT_SHEETS = {
 };
 
 let SHEETS_CONFIG = loadSheetsConfig();
-
