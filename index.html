@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>OGA Item Check Assistant | Dual-Device</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy: {
+              950: '#0B1120',
+              900: '#0F172A',
+              800: '#1E293B',
+              700: '#334155',
+            },
+            accent: {
+              amber: '#F59E0B',
+              emerald: '#10B981',
+              rose: '#F43F5E',
+              blue: '#3B82F6',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', 'Noto Sans Thai', system-ui, sans-serif; }
+    .status-match { background: linear-gradient(135deg, #064e3b, #065f46); border-color: #10b981; }
+    .status-discrepancy { background: linear-gradient(135deg, #7f1d1d, #991b1b); border-color: #f43f5e; }
+    .status-misplaced { background: linear-gradient(135deg, #78350f, #92400e); border-color: #f59e0b; }
+    .scan-laser { box-shadow: 0 0 20px rgba(239, 68, 68, 0.6); }
+    .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.4); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0F172A; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    .pda-screen { max-width: 420px; margin: 0 auto; }
+    
+    /* Bottom Navigation */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 40;
+      background: #0F172A;
+      border-top: 1px solid #334155;
+      padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .pda-content-with-nav { padding-bottom: 72px; }
+    
+    /* High Contrast Mode */
+    body.high-contrast {
+      --tw-bg-opacity: 1;
+    }
+    body.high-contrast .bg-navy-950 { background-color: #000 !important; }
+    body.high-contrast .bg-navy-900, body.high-contrast .bg-navy-800 { background-color: #111 !important; }
+    body.high-contrast .text-slate-100, body.high-contrast .text-slate-300 { color: #fff !important; }
+    body.high-contrast .text-slate-400, body.high-contrast .text-slate-500 { color: #ccc !important; }
+    body.high-contrast .border-navy-700, body.high-contrast .border-navy-600 { border-color: #555 !important; }
+    body.high-contrast .text-amber-400 { color: #fbbf24 !important; }
+    body.high-contrast input, body.high-contrast select, body.high-contrast textarea {
+      background-color: #000 !important;
+      color: #fff !important;
+      border-color: #fff !important;
+    }
+    
+    @media (max-width: 768px) {
+      .desktop-only { display: none !important; }
+      .mobile-full { width: 100% !important; max-width: 100% !important; }
+      header .mode-btn, header button { font-size: 10px; padding: 6px 8px; }
+    }
+    @media (min-width: 769px) {
+      .mobile-only { display: none !important; }
+      .bottom-nav { display: none !important; }
+    }
+  </style>
+</head>
+<body class="bg-navy-950 text-slate-100 min-h-screen">
+  <!-- Header -->
+  <header class="sticky top-0 z-50 bg-navy-900/95 backdrop-blur border-b border-navy-700">
+    <div class="max-w-7xl mx-auto px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+      <div class="flex items-center gap-2">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center font-bold text-sm">OGA</div>
+        <div>
+          <div class="font-semibold text-sm leading-tight">Item Check Assistant</div>
+          <div class="text-[10px] text-slate-400">OGA International Co., Ltd. · Dual-Device</div>
+        </div>
+      </div>
+      
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <button onclick="setMode('mobile')" id="btn-mobile" class="mode-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-navy-800 hover:bg-navy-700 border border-navy-700">
+          📱 Mobile PDA
+        </button>
+        <button onclick="setMode('desktop')" id="btn-desktop" class="mode-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white border border-amber-500">
+          💻 PC Desktop
+        </button>
+        <button onclick="setMode('dual')" id="btn-dual" class="mode-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-navy-800 hover:bg-navy-700 border border-navy-700">
+          🔄 Dual Sync
+        </button>
+        <button onclick="openDailyReport()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-navy-800 hover:bg-navy-700 border border-navy-700 relative">
+          📊 Daily Variance
+          <span id="variance-badge" class="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full text-[9px] flex items-center justify-center">4</span>
+        </button>
+        <button onclick="openManual()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-navy-800 hover:bg-navy-700 border border-navy-700">
+          📖 คู่มือ
+        </button>
+        <button onclick="openSheetsSettings()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-700 hover:bg-blue-600 border border-blue-600">
+          📊 Google Sheet
+        </button>
+        <button onclick="exportExcel()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-700 hover:bg-emerald-600 border border-emerald-600">
+          ⬇️ Export Excel
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main id="app-root" class="max-w-7xl mx-auto px-3 py-4">
+    <!-- Content will be injected by JS -->
+  </main>
+
+  <!-- Modals -->
+  <div id="modal-overlay" class="fixed inset-0 bg-black/70 z-50 hidden items-center justify-center p-4" onclick="closeModal(event)">
+    <div id="modal-content" class="bg-navy-900 border border-navy-700 rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl" onclick="event.stopPropagation()">
+      <!-- Dynamic content -->
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-6 right-6 z-[60] hidden px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all"></div>
+
+  <!-- Audio for feedback -->
+  <audio id="sfx-match" preload="auto"></audio>
+  <audio id="sfx-alert" preload="auto"></audio>
+
+  <script src="src/data.js"></script>
+  <script src="src/utils.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>

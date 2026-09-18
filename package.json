@@ -1,0 +1,14 @@
+{
+  "name": "oga-item-check-assistant",
+  "version": "1.0.0",
+  "description": "OGA Dual-Device Item Check Assistant - PC Desktop + Mobile PDA for OGA International Co., Ltd.",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve .",
+    "dev": "npx serve ."
+  },
+  "keywords": ["wms", "inventory", "barcode", "pda", "oga"],
+  "author": "OGA International Co., Ltd.",
+  "license": "UNLICENSED",
+  "private": true
+}
