@@ -549,43 +549,59 @@ function selectSku(sku) {
 
 
 function handleScan(code) {
-  // Normalize
   const raw = (code || '').toString();
   const q = raw.trim();
   
-  // Always clear the input first for continuous scanning
   const input = document.getElementById('scan-input');
-  if (input) {
-    input.value = '';
-  }
+  if (input) input.value = '';
 
   if (!q) {
     playFeedback('error');
-    showToast('กรุณายิงบาร์โค้ดหรือพิมพ์รหัส', 'warn');
+    showToast('⚠️ กรุณายิงบาร์โค้ด หรือพิมพ์ SKU / Serial ก่อนกด SCAN', 'warn');
     focusScanInput();
     return;
   }
 
-  // Flexible matching for barcode scanners
-  const found = state.items.find(i => {
-    const sku = (i.sku || '').toString();
-    const barcode = (i.barcode || '').toString();
-    const serial = (i.serial || '').toString();
+  // 1) Exact match first (SKU / Barcode / Serial) — most important
+  let found = state.items.find(i => {
+    const sku = (i.sku || '').toString().trim();
+    const barcode = (i.barcode || '').toString().trim();
+    const serial = (i.serial || '').toString().trim();
     return sku === q || barcode === q || serial === q ||
            sku.toLowerCase() === q.toLowerCase() ||
-           barcode.includes(q) || q.includes(barcode) ||
-           sku.toLowerCase().includes(q.toLowerCase()) ||
-           serial.toLowerCase().includes(q.toLowerCase());
+           barcode.toLowerCase() === q.toLowerCase() ||
+           serial.toLowerCase() === q.toLowerCase();
   });
 
+  // 2) If no exact match, try startsWith (for partial scanner reads) but only if unique
+  if (!found) {
+    const candidates = state.items.filter(i => {
+      const sku = (i.sku || '').toString().toLowerCase();
+      const barcode = (i.barcode || '').toString().toLowerCase();
+      const ql = q.toLowerCase();
+      return (sku && sku.startsWith(ql)) || (barcode && barcode.startsWith(ql));
+    });
+    if (candidates.length === 1) found = candidates[0];
+  }
+
   if (found) {
+    // Always re-calculate status from current variance
+    found.variance = (found.physicalCount || 0) - (found.systemOnHand || 0);
+    if (found.primaryLoc && found.actualLoc && found.primaryLoc !== found.actualLoc && found.variance !== 0) {
+      found.status = 'MISPLACED';
+    } else if (found.variance !== 0) {
+      found.status = 'DISCREPANCY';
+    } else {
+      found.status = 'MATCH';
+    }
+
     selectedSku = found.sku;
     if (found.status === 'MATCH') {
       playFeedback('match');
-      showToast('✅ ' + found.sku + ' · MATCH', 'success');
+      showToast('✅ พบสินค้า: ' + found.sku + ' · [MATCH - OK]', 'success');
     } else {
       playFeedback('error');
-      showToast('⚠️ ' + found.sku + ' · ' + found.status, 'warn');
+      showToast('⚠️ พบสินค้า: ' + found.sku + ' · [' + found.status + ']', 'warn');
     }
     if (!navigator.onLine) {
       queueForSync('scan', { sku: found.sku, ts: new Date().toISOString() });
@@ -593,10 +609,9 @@ function handleScan(code) {
     render();
     focusScanInput();
   } else {
-    // Keep the scanned code visible in a "not found" state
     selectedSku = '__NOT_FOUND__:' + q;
     playFeedback('error');
-    showToast('ไม่พบสินค้าในระบบ: ' + q, 'error');
+    showToast('❌ ไม่พบสินค้าในระบบ: "' + q + '" — ลองดึงข้อมูลจาก Google Sheet อีกครั้ง', 'error');
     render();
     focusScanInput();
   }
@@ -825,17 +840,38 @@ function closeModal(e) {
 }
 
 function openTaskDispatch(prefillSku = null) {
-  const options = state.items.map(i => `<option value="${i.sku}" ${i.sku===prefillSku?'selected':''}>${i.sku} - ${i.name}</option>`).join('');
+  // Prefer discrepancy items first in the list
+  const sorted = [...state.items].sort((a, b) => {
+    if (a.status !== 'MATCH' && b.status === 'MATCH') return -1;
+    if (a.status === 'MATCH' && b.status !== 'MATCH') return 1;
+    return (a.sku || '').localeCompare(b.sku || '');
+  });
+  const options = sorted.map(i => {
+    const mark = i.status === 'MATCH' ? '🟢' : i.status === 'DISCREPANCY' ? '🔴' : '🟡';
+    const sel = (prefillSku && i.sku === prefillSku) ? 'selected' : '';
+    return `<option value="${i.sku}" ${sel}>${mark} ${i.sku} — ${i.name || ''}</option>`;
+  }).join('');
+
   openModal(`
-    <div class="p-5">
+    <div class="p-5 max-h-[90vh] overflow-y-auto">
       <div class="flex justify-between items-center mb-4">
         <h3 class="text-lg font-bold">📤 สร้างใบงานส่งไปยังเครื่อง Mobile PDA</h3>
         <button onclick="closeModal()" class="text-slate-400 hover:text-white text-xl">×</button>
       </div>
       <div class="space-y-3">
         <div>
-          <label class="text-xs text-slate-400">เลือกสินค้าเป้าหมาย (Target SKU)</label>
-          <select id="task-sku" class="w-full mt-1 bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm">${options}</select>
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-xs text-slate-400">เลือกสินค้าเป้าหมาย (เลือกได้หลายรายการ)</label>
+            <div class="flex gap-2">
+              <button type="button" onclick="taskSelectAll(true)" class="text-[10px] px-2 py-0.5 rounded bg-navy-700 hover:bg-navy-600">เลือกทั้งหมด</button>
+              <button type="button" onclick="taskSelectAll(false)" class="text-[10px] px-2 py-0.5 rounded bg-navy-700 hover:bg-navy-600">ยกเลิกทั้งหมด</button>
+            </div>
+          </div>
+          <select id="task-sku" multiple size="8"
+            class="w-full mt-1 bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm font-mono">
+            ${options}
+          </select>
+          <p class="text-[10px] text-slate-500 mt-1">กด Ctrl / Cmd ค้างไว้เพื่อเลือกหลายรายการ หรือใช้ปุ่มเลือกทั้งหมด</p>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -857,7 +893,7 @@ function openTaskDispatch(prefillSku = null) {
         </div>
         <div>
           <label class="text-xs text-slate-400">ข้อความสั่งการไปยังหน้าจอ PDA</label>
-          <textarea id="task-instruction" rows="2" class="w-full mt-1 bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm" placeholder="เช่น ตรวจสอบยอดขาด -5 ชิ้น ที่ Rack-B04 ด่วน"></textarea>
+          <textarea id="task-instruction" rows="2" class="w-full mt-1 bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm" placeholder="เช่น ตรวจสอบยอดขาด ด่วน"></textarea>
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button onclick="closeModal()" class="px-4 py-2 rounded-lg bg-navy-700 text-sm">ยกเลิก</button>
@@ -867,26 +903,49 @@ function openTaskDispatch(prefillSku = null) {
     </div>`);
 }
 
+function taskSelectAll(select) {
+  const sel = document.getElementById('task-sku');
+  if (!sel) return;
+  for (let i = 0; i < sel.options.length; i++) {
+    sel.options[i].selected = !!select;
+  }
+}
+
 function submitTask() {
-  const sku = document.getElementById('task-sku').value;
-  const item = state.items.find(i => i.sku === sku);
+  const sel = document.getElementById('task-sku');
+  if (!sel) {
+    showToast('❌ ไม่พบรายการสินค้า', 'error');
+    return;
+  }
+  const selected = Array.from(sel.selectedOptions).map(o => o.value);
+  if (selected.length === 0) {
+    showToast('⚠️ กรุณาเลือกสินค้าอย่างน้อย 1 รายการ', 'warn');
+    return;
+  }
   const type = document.getElementById('task-type').value;
   const priority = document.getElementById('task-priority').value;
-  const instruction = document.getElementById('task-instruction').value || `ตรวจสอบ ${sku}`;
-  state.tasks.unshift({
-    id: 'TASK-' + Date.now(),
-    type, priority, sku,
-    name: item ? item.name : sku,
-    targetLoc: item ? item.primaryLoc : '',
-    zone: item ? item.zone : '',
-    instruction,
-    status: 'PENDING',
-    assignedTo: 'Floor Checker',
-    createdAt: new Date().toISOString().replace('T',' ').slice(0,19)
+  const baseInstruction = document.getElementById('task-instruction').value;
+
+  let count = 0;
+  selected.forEach((sku, idx) => {
+    const item = state.items.find(i => i.sku === sku);
+    const instruction = baseInstruction || `ตรวจสอบ ${sku}` + (item && item.variance ? ` (ผลต่าง ${item.variance})` : '');
+    state.tasks.unshift({
+      id: 'TASK-' + Date.now() + '-' + idx,
+      type, priority, sku,
+      name: item ? item.name : sku,
+      targetLoc: item ? item.primaryLoc : '',
+      zone: item ? item.zone : '',
+      instruction,
+      status: 'PENDING',
+      assignedTo: 'Floor Checker',
+      createdAt: new Date().toISOString().replace('T',' ').slice(0,19)
+    });
+    count++;
   });
   saveState(state);
   closeModal();
-  showToast('ส่งใบงานไปยัง PDA สำเร็จ', 'success');
+  showToast('✅ ส่งใบงาน ' + count + ' รายการไปยัง PDA สำเร็จ', 'success');
   render();
 }
 
@@ -1082,6 +1141,7 @@ window.selectSku = selectSku;
 window.showTab = showTab;
 window.openTaskDispatch = openTaskDispatch;
 window.submitTask = submitTask;
+window.taskSelectAll = taskSelectAll;
 window.openDailyReport = openDailyReport;
 window.openManual = openManual;
 window.openItemDetail = openItemDetail;
@@ -1286,9 +1346,14 @@ function mapSheetRowToItem(row) {
   const physicalCount = parseInt(row.physicalCount || row.PhysicalCount || row.physicalQty || row.PhysicalQty || 0) || 0;
   let variance = parseInt(row.variance || row.Variance || 0);
   if (isNaN(variance)) variance = physicalCount - systemOnHand;
-  let status = row.status || row.Status || '';
-  if (!status) {
-    status = variance === 0 ? 'MATCH' : 'DISCREPANCY';
+  // Always derive status from variance (don't trust Sheet status if inconsistent)
+  let status = 'MATCH';
+  const primaryLoc = row.primaryLoc || row.PrimaryLoc || '';
+  const actualLoc = row.actualLoc || row.ActualLoc || primaryLoc || '';
+  if (primaryLoc && actualLoc && primaryLoc !== actualLoc && variance !== 0) {
+    status = 'MISPLACED';
+  } else if (variance !== 0) {
+    status = 'DISCREPANCY';
   }
 
   return {
@@ -1297,8 +1362,8 @@ function mapSheetRowToItem(row) {
     name: row.name || row.ProductName || row.Name || '',
     category: row.category || row.Category || '',
     serial: row.serial || row.Serial || row.serialNo || '',
-    primaryLoc: row.primaryLoc || row.PrimaryLoc || '',
-    actualLoc: row.actualLoc || row.ActualLoc || row.primaryLoc || row.PrimaryLoc || '',
+    primaryLoc: primaryLoc,
+    actualLoc: actualLoc,
     zone: row.zone || row.Zone || '',
     systemOnHand: systemOnHand,
     reserved: parseInt(row.reserved || row.Reserved || row.reservedQty || 0) || 0,
@@ -1341,4 +1406,3 @@ window.exportDiscrepancyCSV = exportDiscrepancyCSV;
 window.exportCSV = exportCSV;
 window.tryAutoSync = tryAutoSync;
 window.getConnectionStatus = getConnectionStatus;
-
